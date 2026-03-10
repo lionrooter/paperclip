@@ -2,9 +2,12 @@ import type { AdapterExecutionContext, AdapterExecutionResult } from "@paperclip
 import { asNumber, asString, parseObject } from "@paperclipai/adapter-utils/server-utils";
 import { parseOpenClawResponse } from "./parse.js";
 
-function nonEmpty(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+function nonEmpty(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
+
+const DEFAULT_WAKE_MESSAGE =
+  "Paperclip heartbeat wake. Review the attached task context and act only on the identified work.";
 
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
   const { config, runId, agent, context, onLog, onMeta } = ctx;
@@ -23,6 +26,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const timeoutSec = Math.max(1, asNumber(config.timeoutSec, 30));
   const headersConfig = parseObject(config.headers) as Record<string, unknown>;
   const payloadTemplate = parseObject(config.payloadTemplate);
+  const payloadContext = parseObject(payloadTemplate.context) as Record<string, unknown>;
   const webhookAuthHeader = nonEmpty(config.webhookAuthHeader);
 
   const headers: Record<string, string> = {
@@ -38,6 +42,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   }
 
   const wakePayload = {
+    source: "paperclip",
     runId,
     agentId: agent.id,
     companyId: agent.companyId,
@@ -52,8 +57,14 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       : [],
   };
 
+  const message = nonEmpty(payloadTemplate.message) ?? DEFAULT_WAKE_MESSAGE;
   const body = {
     ...payloadTemplate,
+    message,
+    context: {
+      ...payloadContext,
+      ...wakePayload,
+    },
     paperclip: {
       ...wakePayload,
       context,
